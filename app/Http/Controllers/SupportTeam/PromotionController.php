@@ -25,12 +25,12 @@ class PromotionController extends Controller
     {
         $d['old_year'] = $old_yr = Qs::getSetting('current_session');
         $old_yr = explode('-', $old_yr);
-        $d['new_year'] = ++$old_yr[0].'-'.++$old_yr[1];
+        $d['new_year'] = ++$old_yr[0] . '-' . ++$old_yr[1];
         $d['my_classes'] = $this->my_class->all();
         $d['sections'] = $this->my_class->getAllSections();
         $d['selected'] = false;
 
-        if($fc && $fs && $tc && $ts){
+        if ($fc && $fs && $tc && $ts) {
             $d['selected'] = true;
             $d['fc'] = $fc;
             $d['fs'] = $fs;
@@ -38,7 +38,7 @@ class PromotionController extends Controller
             $d['ts'] = $ts;
             $d['students'] = $sts = $this->student->getRecord(['my_class_id' => $fc, 'section_id' => $fs, 'session' => $d['old_year']])->get();
 
-            if($sts->count() < 1){
+            if ($sts->count() < 1) {
                 return redirect()->route('students.promotion')->with('flash_success', __('msg.nstp'));
             }
         }
@@ -53,51 +53,83 @@ class PromotionController extends Controller
 
     public function promote(Request $req, $fc, $fs, $tc, $ts)
     {
-        $oy = Qs::getSetting('current_session'); $d = [];
+        $oy = Qs::getSetting('current_session');
+        $d = [];
         $old_yr = explode('-', $oy);
-        $ny = ++$old_yr[0].'-'.++$old_yr[1];
-        $students = $this->student->getRecord(['my_class_id' => $fc, 'section_id' => $fs, 'session' => $oy ])->get()->sortBy('user.name');
+        $ny = ++$old_yr[0] . '-' . ++$old_yr[1];
+        $students = $this->student->getRecord(['my_class_id' => $fc, 'section_id' => $fs, 'session' => $oy])->get()->sortBy('user.name');
 
-        if($students->count() < 1){
+        if ($students->count() < 1) {
             return redirect()->route('students.promotion')->with('flash_danger', __('msg.srnf'));
         }
 
-        foreach($students as $st){
-            $p = 'p-'.$st->id;
+        $ba = $req->bulk_action;
+        $ss = [];
+        foreach ($students as $st) {
+            $p = 'p-' . $st->id;
+            $c = 'c-' . $st->id;
+            $s = $req->$c == "on";
+            $ss[] = $s;
             $p = $req->$p;
-            if($p === 'P'){ // Promote
-                $d['my_class_id'] = $tc;
-                $d['section_id'] = $ts;
-                $d['session'] = $ny;
-            }
-            if($p === 'D'){ // Don't Promote
-                $d['my_class_id'] = $fc;
-                $d['section_id'] = $fs;
-                $d['session'] = $ny;
-            }
-            if($p === 'G'){ // Graduated
-                $d['my_class_id'] = $fc;
-                $d['section_id'] = $fs;
-                $d['grad'] = 1;
-                $d['grad_date'] = $oy;
-            }
+            if ($s) {
+                // if($p === 'P'){ // Promote
+                if ($ba === 'P') { // Promote
+                    $d['my_class_id'] = $tc;
+                    $d['section_id'] = $ts;
+                    $d['session'] = $ny;
+                }
+                // if($p === 'D'){ // Don't Promote
+                if ($ba === 'D') { // Don't Promote
+                    $d['my_class_id'] = $fc;
+                    $d['section_id'] = $fs;
+                    $d['session'] = $ny;
+                }
+                // if($p === 'G'){ // Graduated
+                if ($ba === 'G') { // Graduated
+                    $d['my_class_id'] = $fc;
+                    $d['section_id'] = $fs;
+                    $d['grad'] = 1;
+                    $d['grad_date'] = $oy;
+                }
 
-            $this->student->updateRecord($st->id, $d);
+                $this->student->updateRecord($st->id, $d);
 
-//            Insert New Promotion Data
-            $promote['from_class'] = $fc;
-            $promote['from_section'] = $fs;
-            $promote['grad'] = ($p === 'G') ? 1 : 0;
-            $promote['to_class'] = in_array($p, ['D', 'G']) ? $fc : $tc;
-            $promote['to_section'] = in_array($p, ['D', 'G']) ? $fs : $ts;
-            $promote['student_id'] = $st->user_id;
-            $promote['from_session'] = $oy;
-            $promote['to_session'] = $ny;
-            $promote['status'] = $p;
+                // Insert New Promotion Data
+                $promote['from_class'] = $fc;
+                $promote['from_section'] = $fs;
+                $promote['grad'] = ($ba === 'G') ? 1 : 0;
+                $promote['to_class'] = in_array($ba, ['D', 'G']) ? $fc : $tc;
+                $promote['to_section'] = in_array($ba, ['D', 'G']) ? $fs : $ts;
+                $promote['student_id'] = $st->user_id;
+                $promote['from_session'] = $oy;
+                $promote['to_session'] = $ny;
+                $promote['status'] = $ba;
 
-            $this->student->createPromotion($promote);
+                $this->student->createPromotion($promote);
+            }
         }
         return redirect()->route('students.promotion')->with('flash_success', __('msg.update_ok'));
+    }
+
+
+
+    public function assign(Request $request)
+    {
+        $studentIds = $request->input('student_ids', []); // Array of student IDs
+        $sectionId = $request->input('section_id');
+
+        try {
+            foreach ($studentIds as $studentId) {
+                // Update each student's section_id in the StudentRecord (assuming this method exists)
+                $this->updateRecord($studentId, ['section_id' => $sectionId]);
+            }
+
+            return redirect()->view('pages.support_team.students.list')->with('flash_success', __('msg.update_ok'));
+        } catch (\Exception $e) {
+            // Handle exceptions if the updates fail
+            Log::error('Exception during assignment: ' . $e->getMessage());
+            return redirect()->view('pages.support_team.students.list')->with('flash_danger', __('msg.srnf'));
+        }
     }
 
     public function manage()
@@ -122,13 +154,13 @@ class PromotionController extends Controller
         $where = ['from_session' => Qs::getCurrentSession(), 'to_session' => $next_session];
         $proms = $this->student->getPromotions($where);
 
-        if ($proms->count()){
-          foreach ($proms as $prom){
-              $this->reset_single($prom->id);
+        if ($proms->count()) {
+            foreach ($proms as $prom) {
+                $this->reset_single($prom->id);
 
-              // Delete Marks if Already Inserted for New Session
-              $this->delete_old_marks($prom->student_id, $next_session);
-          }
+                // Delete Marks if Already Inserted for New Session
+                $this->delete_old_marks($prom->student_id, $next_session);
+            }
         }
 
         return Qs::jsonUpdateOk();
